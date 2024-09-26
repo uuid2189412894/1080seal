@@ -6,170 +6,151 @@ const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// Seal character
+// Asset images
 const seal = new Image();
-seal.src = 'seal.png'; // Replace with your seal image URL
+seal.src = 'seal.png'; // Replace with your seal image URL or path
 
-// Tree obstacle
-const tree = new Image();
-tree.src = 'tree.png'; // Replace with your tree image URL
+const treeImage = new Image();
+treeImage.src = 'tree.png'; // Replace with your tree image URL or path
 
 // Game variables
-let sealX, sealY, sealWidth, sealHeight, sealSpeed;
-let trees;
-let treeWidth, treeHeight, treeSpeed, spawnInterval;
-let score;
-let leftPressed, rightPressed;
-let touchX;
-let gameOver;
-let gameLoopId;
+let sealX = 0; // Seal's horizontal position (-1 to 1)
+let sealY = 0; // Seal's depth position (0 to maxDepth)
 
-// Initialize game variables
-function init() {
-    // Seal properties
-    sealX = canvas.width / 2;
-    sealY = canvas.height - 100;
-    sealWidth = 50;
-    sealHeight = 50;
-    sealSpeed = 7;
+const sealSpeed = 0.08; // Increased speed for sensitivity
+const maxDepth = 5; // Maximum depth the seal can move to
 
-    // Tree obstacles
-    trees = [];
-    treeWidth = 50;
-    treeHeight = 70;
-    treeSpeed = 5;
-    spawnInterval = 2000; // Trees spawn every 2 seconds
+let obstacles = [];
+const obstacleSpawnInterval = 1000; // Obstacles spawn every 1 second
+let obstacleSpeed = 0.025; // Speed at which obstacles approach
 
-    // Score
-    score = 0;
+// Movement flags
+const keysPressed = {};
 
-    // Controls
-    leftPressed = false;
-    rightPressed = false;
-    touchX = null;
+let score = 0;
+let gameOver = false;
 
-    // Game state
-    gameOver = false;
-
-    // Start spawning trees
-    if (typeof treeSpawner !== 'undefined') {
-        clearInterval(treeSpawner);
-    }
-    treeSpawner = setInterval(spawnTree, spawnInterval);
-}
-
-// Event listeners for keyboard controls
+// Event listeners for controls
 document.addEventListener('keydown', keyDownHandler);
 document.addEventListener('keyup', keyUpHandler);
 
-// Event listeners for touch controls
-canvas.addEventListener('touchstart', touchStartHandler);
-canvas.addEventListener('touchmove', touchMoveHandler);
-canvas.addEventListener('touchend', touchEndHandler);
+// Handle window resize
+window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
 
+// Control functions
 function keyDownHandler(e) {
-    if (e.key === 'ArrowLeft' || e.key === 'a') {
-        leftPressed = true;
-    } else if (e.key === 'ArrowRight' || e.key === 'd') {
-        rightPressed = true;
-    }
+    keysPressed[e.key.toLowerCase()] = true;
 }
 
 function keyUpHandler(e) {
-    if (e.key === 'ArrowLeft' || e.key === 'a') {
-        leftPressed = false;
-    } else if (e.key === 'ArrowRight' || e.key === 'd') {
-        rightPressed = false;
+    keysPressed[e.key.toLowerCase()] = false;
+}
+
+// Game initialization
+function init() {
+    obstacles = [];
+    score = 0;
+    gameOver = false;
+    sealX = 0;
+    sealY = 0;
+    obstacleSpeed = 0.025; // Reset obstacle speed
+
+    // Start spawning obstacles
+    if (typeof obstacleSpawner !== 'undefined') {
+        clearInterval(obstacleSpawner);
     }
+    obstacleSpawner = setInterval(spawnObstacle, obstacleSpawnInterval);
 }
 
-function touchStartHandler(e) {
-    touchX = e.touches[0].clientX;
-}
+// Spawn obstacles
+function spawnObstacle() {
+    const xPosition = (Math.random() * 2 - 1) * 1; // Random x between -1 and 1
+    const yPosition = maxDepth + 2; // Start beyond max depth
 
-function touchMoveHandler(e) {
-    const deltaX = e.touches[0].clientX - touchX;
-    if (deltaX < 0) {
-        leftPressed = true;
-        rightPressed = false;
-    } else {
-        leftPressed = false;
-        rightPressed = true;
-    }
-    touchX = e.touches[0].clientX;
-}
-
-function touchEndHandler(e) {
-    leftPressed = false;
-    rightPressed = false;
-    touchX = null;
-}
-
-function spawnTree() {
-    const xPosition = Math.random() * (canvas.width - treeWidth);
-    trees.push({ x: xPosition, y: -treeHeight });
+    obstacles.push({
+        x: xPosition,
+        y: yPosition,
+        width: 0.5, // Width in world units
+        height: 0.5, // Height in world units
+    });
 }
 
 // Update game objects
 function update() {
     if (!gameOver) {
-        // Move seal
-        if (leftPressed && sealX > 0) {
+        // Move seal based on keys pressed
+        if (keysPressed['w'] && sealY < maxDepth) {
+            sealY += sealSpeed;
+        }
+        if (keysPressed['s'] && sealY > 0) {
+            sealY -= sealSpeed;
+        }
+        if (keysPressed['a'] && sealX > -1) {
             sealX -= sealSpeed;
         }
-        if (rightPressed && sealX < canvas.width - sealWidth) {
+        if (keysPressed['d'] && sealX < 1) {
             sealX += sealSpeed;
         }
 
-        // Move trees
-        for (let i = 0; i < trees.length; i++) {
-            trees[i].y += treeSpeed;
+        // Ensure the seal stays within bounds
+        sealX = Math.max(-1, Math.min(1, sealX));
+        sealY = Math.max(0, Math.min(maxDepth, sealY));
+
+        // Update obstacles
+        for (let i = 0; i < obstacles.length; i++) {
+            obstacles[i].y -= obstacleSpeed;
 
             // Collision detection
-            if (
-                sealX < trees[i].x + treeWidth &&
-                sealX + sealWidth > trees[i].x &&
-                sealY < trees[i].y + treeHeight &&
-                sealY + sealHeight > trees[i].y
-            ) {
-                // Trigger game over
+            const dx = obstacles[i].x - sealX;
+            const dy = obstacles[i].y - sealY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < (obstacles[i].width + 0.3) / 2) {
+                // Collision detected
                 gameOver = true;
-                // Stop tree spawning
-                clearInterval(treeSpawner);
-                // Show game over message and restart
+                clearInterval(obstacleSpawner);
                 setTimeout(() => {
                     init();
-                }, 2000); // Wait 2 seconds before restarting
+                }, 2000); // Restart after 2 seconds
             }
         }
 
-        // Remove off-screen trees
-        trees = trees.filter(tree => tree.y < canvas.height);
+        // Remove off-screen obstacles
+        obstacles = obstacles.filter(obstacle => obstacle.y > -1);
 
         // Increase score
         score++;
+
+        // Optional: Increase difficulty over time
+        obstacleSpeed += 0.00001;
     }
 }
 
-// Draw everything
+// Draw functions
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!gameOver) {
-        // Draw seal
-        ctx.drawImage(seal, sealX, sealY, sealWidth, sealHeight);
+        // Draw ground
+        drawGround();
 
-        // Draw trees
-        for (let i = 0; i < trees.length; i++) {
-            ctx.drawImage(tree, trees[i].x, trees[i].y, treeWidth, treeHeight);
-        }
+        // Draw obstacles
+        obstacles.forEach(obstacle => {
+            drawObstacle(obstacle);
+        });
+
+        // Draw seal
+        drawSeal();
 
         // Draw score
         ctx.fillStyle = '#000';
         ctx.font = '20px Arial';
-        ctx.fillText(' Score: ' + score, 10, 30);
+        ctx.fillText('Score: ' + score, 10, 30);
     } else {
-        // Draw game over message
+        // Draw game over screen
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -184,23 +165,92 @@ function draw() {
     }
 }
 
+// Draw ground plane
+function drawGround() {
+    const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
+    gradient.addColorStop(0, '#ffffff'); // Near color
+    gradient.addColorStop(1, '#cccccc'); // Far color
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// Isometric projection function
+function project(x, y) {
+    const angle = Math.PI / 6; // 30 degrees for isometric projection
+    const scale = 200; // Adjust for screen size
+
+    const isoX = (x - y) * Math.cos(angle) * scale + canvas.width / 2;
+    const isoY = (x + y) * Math.sin(angle) * scale + canvas.height / 2;
+
+    return { x: isoX, y: isoY };
+}
+
+// Draw the seal
+function drawSeal() {
+    const pos = project(sealX, sealY);
+
+    const sealWidth = 80; // Fixed size for the seal
+    const sealHeight = 100;
+
+    if (seal.complete) {
+        ctx.drawImage(
+            seal,
+            pos.x - sealWidth / 2,
+            pos.y - sealHeight / 2,
+            sealWidth,
+            sealHeight
+        );
+    }
+}
+
+// Draw obstacles
+function drawObstacle(obstacle) {
+    const pos = project(obstacle.x, obstacle.y);
+
+    const scaleValue = 1 / (obstacle.y + 1); // Scale based on depth
+    const obstacleWidth = 80 * scaleValue;
+    const obstacleHeight = 100 * scaleValue;
+
+    if (treeImage.complete) {
+        ctx.drawImage(
+            treeImage,
+            pos.x - obstacleWidth / 2,
+            pos.y - obstacleHeight / 2,
+            obstacleWidth,
+            obstacleHeight
+        );
+    }
+}
+
 // Game loop
 function gameLoop() {
     update();
     draw();
-    gameLoopId = requestAnimationFrame(gameLoop);
+    requestAnimationFrame(gameLoop);
 }
 
 // Start the game after images load
-seal.onload = () => {
-    tree.onload = () => {
-        init();
-        gameLoop();
-    };
+function startGame() {
+    init();
+    gameLoop();
+}
+
+// Load images and start the game
+let imagesLoaded = 0;
+function checkAllImagesLoaded() {
+    imagesLoaded++;
+    if (imagesLoaded === 2) {
+        startGame();
+    }
+}
+
+seal.onload = checkAllImagesLoaded;
+seal.onerror = function () {
+    console.error('Failed to load seal image.');
 };
 
-// Handle window resize
-window.addEventListener('resize', () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-});
+treeImage.onload = checkAllImagesLoaded;
+treeImage.onerror = function () {
+    console.error('Failed to load tree image.');
+};
